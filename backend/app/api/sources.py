@@ -80,7 +80,10 @@ async def upload_file_source(
         logger.info(f"Writing {len(content)} bytes to {dest_path}")
         with open(dest_path, "wb") as f:
             f.write(content)
-        logger.info(f"Successfully saved file to {dest_path}")
+        import base64
+        meta = {"size_bytes": len(content)}
+        if len(content) <= 30 * 1024 * 1024:
+            meta["file_b64"] = base64.b64encode(content).decode("ascii")
     except Exception as e:
         logger.error(f"Error saving file: {e}", exc_info=True)
         raise HTTPException(500, f"Error saving file: {str(e)}")
@@ -92,7 +95,7 @@ async def upload_file_source(
         origin=file.filename or dest_path,
         file_path=dest_path,
         status=SourceStatus.uploading,
-        meta={"size_bytes": len(content)},
+        meta=meta,
     )
     db.add(source)
     await db.commit()
@@ -173,8 +176,23 @@ async def get_source_file(
     same tradeoff as the podcast file endpoint below.
     """
     source = await db.get(Source, source_id)
-    if not source or source.notebook_id != notebook_id or not source.file_path or not os.path.exists(source.file_path):
-        raise HTTPException(404, "File not found")
+    if not source or source.notebook_id != notebook_id:
+        raise HTTPException(404, "Source not found")
+
+    if not source.file_path or not os.path.exists(source.file_path):
+        b64 = (source.meta or {}).get("file_b64")
+        if b64:
+            import base64
+            dest_dir = os.path.join(settings.UPLOAD_DIR, str(notebook_id))
+            os.makedirs(dest_dir, exist_ok=True)
+            restore_path = source.file_path or os.path.join(dest_dir, f"{source.id}.pdf")
+            with open(restore_path, "wb") as f:
+                f.write(base64.b64decode(b64))
+            source.file_path = restore_path
+            await db.commit()
+        else:
+            raise HTTPException(404, "File not found on server disk. Please re-upload this document.")
+
     media_type, _ = mimetypes.guess_type(source.file_path)
     return FileResponse(source.file_path, media_type=media_type or "application/octet-stream", filename=source.title)
 

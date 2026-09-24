@@ -9,6 +9,7 @@ Powers the "open original source from a citation" experience.
 - YouTube: returns a deep link with &t=<seconds>.
 - Text/VTT: returns char offsets / cue text for in-app highlighting.
 """
+import os
 import uuid
 from urllib.parse import quote
 
@@ -43,11 +44,15 @@ async def view_chunk_source(
     }
 
     if source.type == SourceType.pdf:
+        has_file = bool(
+            (source.file_path and os.path.exists(source.file_path))
+            or (source.meta and source.meta.get("file_b64"))
+        )
         return {
             **base,
-            "mode": "pdf",
+            "mode": "pdf" if has_file else "text",
             "page": chunk.page,
-            "file_url": f"/api/notebooks/{notebook_id}/sources/{source.id}/file",
+            "file_url": f"/api/notebooks/{notebook_id}/sources/{source.id}/file" if has_file else None,
         }
 
     if source.type == SourceType.website:
