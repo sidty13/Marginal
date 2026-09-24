@@ -40,6 +40,24 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
+    import os
+    import urllib.parse
+
+    db_url = settings.DATABASE_URL
+    try:
+        parsed = urllib.parse.urlsplit(db_url)
+        print(f"\n[ALEMBIC] Connecting to host: '{parsed.hostname}' on port '{parsed.port}' (db: '{parsed.path}')", flush=True)
+    except Exception as e:
+        print(f"\n[ALEMBIC] Database URL parse error: {e}", flush=True)
+
+    if ("localhost" in db_url or "127.0.0.1" in db_url) and (os.environ.get("RENDER") or os.environ.get("PORT")):
+        print("\n" + "!" * 80, flush=True)
+        print("CRITICAL CONFIGURATION ERROR:", flush=True)
+        print("DATABASE_URL is NOT SET in Render Environment Variables!", flush=True)
+        print("Alembic is defaulting to localhost:5432, which does not exist in this container.", flush=True)
+        print("Please go to Render Dashboard -> Environment and add DATABASE_URL.", flush=True)
+        print("!" * 80 + "\n", flush=True)
+
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

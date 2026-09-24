@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     @classmethod
     def assemble_async_db_url(cls, v: str) -> str:
         if isinstance(v, str):
+            v = v.strip().strip("'").strip('"')
+            if not v or "localhost" in v or "127.0.0.1" in v:
+                import os
+                for key in ("DATABASE_URL", "POSTGRES_URL", "NEON_DATABASE_URL", "DB_URL"):
+                    val = os.environ.get(key)
+                    if val and "localhost" not in val and "127.0.0.1" not in val:
+                        v = val.strip().strip("'").strip('"')
+                        break
             if v.startswith("postgres://"):
                 v = v.replace("postgres://", "postgresql+asyncpg://", 1)
             elif v.startswith("postgresql://"):
@@ -52,9 +60,10 @@ class Settings(BaseSettings):
     @classmethod
     def assemble_sync_db_url(cls, v: str) -> str:
         if isinstance(v, str):
+            v = v.strip().strip("'").strip('"')
             if v.startswith("postgres://"):
                 return v.replace("postgres://", "postgresql+psycopg2://", 1)
-            if v.startswith("postgresql://"):
+            elif v.startswith("postgresql://"):
                 return v.replace("postgresql://", "postgresql+psycopg2://", 1)
         return v
 
