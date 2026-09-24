@@ -34,9 +34,18 @@ class Settings(BaseSettings):
     def assemble_async_db_url(cls, v: str) -> str:
         if isinstance(v, str):
             if v.startswith("postgres://"):
-                return v.replace("postgres://", "postgresql+asyncpg://", 1)
-            if v.startswith("postgresql://"):
-                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+                v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif v.startswith("postgresql://"):
+                v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if "sslmode=" in v:
+                v = (
+                    v.replace("sslmode=require", "ssl=require")
+                    .replace("sslmode=prefer", "ssl=prefer")
+                    .replace("sslmode=disable", "ssl=disable")
+                )
+            if ".neon.tech" in v and "ssl=" not in v:
+                separator = "&" if "?" in v else "?"
+                v = f"{v}{separator}ssl=require"
         return v
 
     @field_validator("SYNC_DATABASE_URL", mode="before")

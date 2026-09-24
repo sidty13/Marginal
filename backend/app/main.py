@@ -43,6 +43,8 @@ app.include_router(quiz.router, prefix=settings.API_PREFIX)
 app.include_router(export.router, prefix=settings.API_PREFIX)
 
 
+@app.get("/")
+@app.get("/health")
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "app": settings.APP_NAME}
