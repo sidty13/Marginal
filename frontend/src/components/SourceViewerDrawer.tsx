@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X, ExternalLink } from "lucide-react";
-import { sourceFileUrl, viewChunk } from "@/lib/api";
+import { sourceFileUrl, viewChunk, API_ORIGIN } from "@/lib/api";
 import type { CitationOut, SourceOut, ViewerPayload } from "@/lib/types";
 import { formatTimestamp } from "@/lib/format";
 import SourceIcon from "./SourceIcon";
@@ -44,6 +44,9 @@ export default function SourceViewerDrawer({
         try {
           const result = await viewChunk(notebookId, target.citation.chunk.id);
           if (cancelled) return;
+          if (result.file_url && !result.file_url.startsWith("http")) {
+            result.file_url = `${API_ORIGIN}${result.file_url.startsWith("/") ? "" : "/"}${result.file_url}`;
+          }
           setPayload(result);
         } catch {
           if (!cancelled) setError("Couldn't load that citation.");

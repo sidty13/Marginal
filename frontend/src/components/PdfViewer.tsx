@@ -6,6 +6,7 @@ import type { TextContent, TextItem } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { ChevronLeft, ChevronRight, ExternalLink, SearchX } from "lucide-react";
+import { API_ORIGIN } from "@/lib/api";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -29,6 +30,14 @@ export default function PdfViewer({
   initialPage?: number | null;
   highlightText?: string;
 }) {
+  const resolvedUrl = useMemo(() => {
+    if (!fileUrl) return "";
+    if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+      return fileUrl;
+    }
+    return `${API_ORIGIN}${fileUrl.startsWith("/") ? "" : "/"}${fileUrl}`;
+  }, [fileUrl]);
+
   // Note: this component is expected to be remounted (via a `key` on the
   // parent) whenever fileUrl/initialPage/highlightText change targets, so
   // this local state never needs to be reset mid-lifecycle.
@@ -144,7 +153,7 @@ export default function PdfViewer({
             </span>
           )}
           <a
-            href={fileUrl}
+            href={resolvedUrl}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1 font-mono text-[11px] text-ink-soft transition hover:text-moss"
@@ -157,8 +166,9 @@ export default function PdfViewer({
       <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto bg-paper-dim/40 px-4 py-4">
         <div className="mx-auto w-fit rounded-sm border border-line bg-surface shadow-[var(--shadow-card)]">
           <Document
-            file={fileUrl}
+            file={resolvedUrl}
             onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+            onLoadError={(err) => console.error("PDF load error:", err)}
             loading={
               <div className="flex h-96 w-full items-center justify-center">
                 <p className="pulse-soft font-mono text-xs text-ink-faint">Loading PDF…</p>
