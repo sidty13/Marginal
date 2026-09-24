@@ -122,10 +122,6 @@ async def get_podcast_file(notebook_id: uuid.UUID, path: str):
     )
     full_path = os.path.abspath(os.path.join(out_dir, path))
 
-    print("OUT_DIR:", out_dir)
-    print("FULL_PATH:", full_path)
-    print("EXISTS:", os.path.exists(full_path))
-
     if not full_path.startswith(out_dir) or not os.path.exists(full_path):
         raise HTTPException(404, "Podcast file not found")
 

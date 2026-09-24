@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_owned_notebook
-from app.core.db import get_db
+from app.core.db import AsyncSessionLocal, get_db
 from app.generation.llm import stream_answer
 from app.models.models import Chunk, Citation, Message, Notebook, Role
 from app.retrieval.pipeline import retrieve
@@ -111,19 +111,21 @@ async def chat(
                 full_text += token
                 yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
 
-        # Persist assistant message + citations, matching [n] markers found
-        # in the generated text to the retrieved chunks.
-        assistant_msg = Message(notebook_id=notebook_id, role=Role.assistant, content=full_text)
-        db.add(assistant_msg)
-        await db.flush()
+        # Persist assistant message + citations using a dedicated session,
+        # since the route dependency session closes when StreamingResponse is returned.
+        async with AsyncSessionLocal() as session:
+            assistant_msg = Message(notebook_id=notebook_id, role=Role.assistant, content=full_text)
+            session.add(assistant_msg)
+            await session.flush()
 
-        cited_indices = {int(m) for m in _CITATION_RE.findall(full_text)}
-        for i, r in enumerate(retrieved):
-            marker = i + 1
-            if marker in cited_indices:
-                db.add(Citation(message_id=assistant_msg.id, chunk_id=r.chunk.id, marker_index=marker))
-        await db.commit()
+            cited_indices = {int(m) for m in _CITATION_RE.findall(full_text)}
+            for i, r in enumerate(retrieved):
+                marker = i + 1
+                if marker in cited_indices:
+                    session.add(Citation(message_id=assistant_msg.id, chunk_id=r.chunk.id, marker_index=marker))
+            await session.commit()
+            assistant_msg_id = str(assistant_msg.id)
 
-        yield f"data: {json.dumps({'type': 'done', 'message_id': str(assistant_msg.id)})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg_id})}\n\n"
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

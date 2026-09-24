@@ -15,8 +15,12 @@ from youtube_transcript_api import (
 
 from app.extractors.base import BaseExtractor, ExtractedUnit
 
+import requests
+from tenacity import retry, stop_after_attempt, wait_exponential
+from urllib.parse import parse_qs, urlparse
+
 _ID_RE = re.compile(
-    r"(?:youtu\.be/|youtube\.com/(?:watch\?v=|embed/|shorts/))([\w-]{11})"
+    r"(?:youtu\.be/|youtube\.com/(?:watch\?.*?v=|embed/|shorts/|live/))([\w-]{11})"
 )
 
 # youtube_transcript_api makes a blocking network call; cap how long we'll
@@ -38,12 +42,27 @@ _BLOCKED_MESSAGE = (
 
 
 def extract_video_id(url_or_id: str) -> str:
-    if len(url_or_id) == 11 and "/" not in url_or_id:
+    url_or_id = url_or_id.strip()
+    if len(url_or_id) == 11 and "/" not in url_or_id and "&" not in url_or_id and "?" not in url_or_id:
         return url_or_id
+
+    parsed = urlparse(url_or_id)
+    if "youtube.com" in parsed.netloc:
+        qs = parse_qs(parsed.query)
+        if "v" in qs and qs["v"]:
+            return qs["v"][0]
+        parts = parsed.path.strip("/").split("/")
+        if len(parts) >= 2 and parts[0] in ("embed", "shorts", "live"):
+            return parts[1]
+    elif "youtu.be" in parsed.netloc:
+        parts = parsed.path.strip("/").split("/")
+        if parts and len(parts[0]) == 11:
+            return parts[0]
+
     m = _ID_RE.search(url_or_id)
-    if not m:
-        raise ValueError(f"Could not parse a YouTube video id from: {url_or_id}")
-    return m.group(1)
+    if m:
+        return m.group(1)
+    raise ValueError(f"Could not parse a YouTube video id from: {url_or_id}")
 
 
 class YoutubeExtractor(BaseExtractor):
@@ -58,6 +77,11 @@ class YoutubeExtractor(BaseExtractor):
     async def extract(self, source) -> list[ExtractedUnit]:
         video_id = extract_video_id(source.origin)
 
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=2, min=4, max=20),
+            reraise=True,
+        )
         def _fetch() -> list[dict]:
             if settings.WEBSHARE_PROXY_USERNAME and settings.WEBSHARE_PROXY_PASSWORD:
                 api = YouTubeTranscriptApi(
@@ -80,7 +104,7 @@ class YoutubeExtractor(BaseExtractor):
                 f"Timed out fetching the transcript after {_TRANSCRIPT_TIMEOUT_SECONDS}s. "
                 + _BLOCKED_MESSAGE
             ) from e
-        except (IpBlocked, RequestBlocked, ElementTree.ParseError) as e:
+        except (IpBlocked, RequestBlocked, ElementTree.ParseError, requests.exceptions.RequestException) as e:
             # Older library versions (and occasionally the new one) surface
             # blocking as a raw XML parse error on an empty response body
             # rather than a typed exception -- treat both the same way.

@@ -1,4 +1,5 @@
 import logging
+import mimetypes
 import os
 import uuid
 
@@ -159,9 +160,10 @@ async def get_source_file(
     same tradeoff as the podcast file endpoint below.
     """
     source = await db.get(Source, source_id)
-    if not source or source.notebook_id != notebook_id or not source.file_path:
+    if not source or source.notebook_id != notebook_id or not source.file_path or not os.path.exists(source.file_path):
         raise HTTPException(404, "File not found")
-    return FileResponse(source.file_path, media_type="application/pdf", filename=source.title)
+    media_type, _ = mimetypes.guess_type(source.file_path)
+    return FileResponse(source.file_path, media_type=media_type or "application/octet-stream", filename=source.title)
 
 
 @router.get("/{source_id}", response_model=SourceOut)

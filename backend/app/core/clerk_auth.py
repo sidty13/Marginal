@@ -49,11 +49,12 @@ async def get_current_user_id(authorization: str | None = Header(default=None)) 
     try:
         client = _get_jwk_client()
         signing_key = client.get_signing_key_from_jwt(token)
+        issuer = settings.CLERK_ISSUER.rstrip("/") if settings.CLERK_ISSUER else ""
         payload = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
-            issuer=settings.CLERK_ISSUER,
+            issuer=issuer,
             options={"require": ["exp", "iat", "sub"]},
         )
     except HTTPException:

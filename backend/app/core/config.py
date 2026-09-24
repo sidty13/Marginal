@@ -5,6 +5,7 @@ All values are loaded from environment variables (see .env.example).
 Nothing here should be hard-coded per-deployment.
 """
 from functools import lru_cache
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,9 +18,36 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: str | list[str]) -> list[str] | str:
+        if isinstance(v, str) and not v.strip().startswith("["):
+            return [i.strip() for i in v.split(",") if i.strip()]
+        return v
+
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/notebook_rag"
     SYNC_DATABASE_URL: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/notebook_rag"
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def assemble_async_db_url(cls, v: str) -> str:
+        if isinstance(v, str):
+            if v.startswith("postgres://"):
+                return v.replace("postgres://", "postgresql+asyncpg://", 1)
+            if v.startswith("postgresql://"):
+                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
+    @field_validator("SYNC_DATABASE_URL", mode="before")
+    @classmethod
+    def assemble_sync_db_url(cls, v: str) -> str:
+        if isinstance(v, str):
+            if v.startswith("postgres://"):
+                return v.replace("postgres://", "postgresql+psycopg2://", 1)
+            if v.startswith("postgresql://"):
+                return v.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return v
 
     # --- Redis / Celery ---
     REDIS_URL: str = "redis://localhost:6379/0"

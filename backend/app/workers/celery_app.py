@@ -18,6 +18,7 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
 )
 celery_app.conf.task_default_queue = "indexing"
+celery_app.conf.broker_connection_retry_on_startup = True
 
 
 async def _run_and_cleanup(source_id: str) -> None:

@@ -1,3 +1,5 @@
+import os
+
 from app.extractors.base import BaseExtractor, ExtractedUnit
 
 
@@ -8,6 +10,8 @@ class TextExtractor(BaseExtractor):
     """
 
     async def extract(self, source) -> list[ExtractedUnit]:
+        if not source.file_path or not os.path.exists(source.file_path):
+            raise FileNotFoundError(f"Text file not found: {source.file_path}")
         with open(source.file_path, "r", encoding="utf-8", errors="ignore") as f:
             raw = f.read()
 

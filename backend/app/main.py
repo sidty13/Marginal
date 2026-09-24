@@ -11,9 +11,11 @@ logger = logging.getLogger("notebook_rag")
 
 app = FastAPI(title=settings.APP_NAME)
 
+_cors_origins = list({*settings.CORS_ORIGINS, "https://marginal-phi.vercel.app"})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
