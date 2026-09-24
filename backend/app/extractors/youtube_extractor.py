@@ -1,9 +1,11 @@
 import asyncio
+import logging
 import re
+from urllib.parse import parse_qs, urlparse
 import xml.etree.ElementTree as ElementTree
-from youtube_transcript_api.proxies import WebshareProxyConfig
-from app.core.config import settings
 
+import requests
+from tenacity import retry, stop_after_attempt, wait_exponential
 from youtube_transcript_api import (
     IpBlocked,
     NoTranscriptFound,
@@ -12,12 +14,12 @@ from youtube_transcript_api import (
     VideoUnavailable,
     YouTubeTranscriptApi,
 )
+from youtube_transcript_api.proxies import WebshareProxyConfig
 
+from app.core.config import settings
 from app.extractors.base import BaseExtractor, ExtractedUnit
 
-import requests
-from tenacity import retry, stop_after_attempt, wait_exponential
-from urllib.parse import parse_qs, urlparse
+logger = logging.getLogger("notebook_rag")
 
 _ID_RE = re.compile(
     r"(?:youtu\.be/|youtube\.com/(?:watch\?.*?v=|embed/|shorts/|live/))([\w-]{11})"
@@ -83,7 +85,10 @@ class YoutubeExtractor(BaseExtractor):
             reraise=True,
         )
         def _fetch() -> list[dict]:
-            if settings.WEBSHARE_PROXY_USERNAME and settings.WEBSHARE_PROXY_PASSWORD:
+            use_proxy = bool(
+                settings.WEBSHARE_PROXY_USERNAME and settings.WEBSHARE_PROXY_PASSWORD
+            )
+            if use_proxy:
                 api = YouTubeTranscriptApi(
                     proxy_config=WebshareProxyConfig(
                         proxy_username=settings.WEBSHARE_PROXY_USERNAME,
@@ -104,10 +109,16 @@ class YoutubeExtractor(BaseExtractor):
                 f"Timed out fetching the transcript after {_TRANSCRIPT_TIMEOUT_SECONDS}s. "
                 + _BLOCKED_MESSAGE
             ) from e
-        except (IpBlocked, RequestBlocked, ElementTree.ParseError, requests.exceptions.RequestException) as e:
+        except (
+            IpBlocked,
+            RequestBlocked,
+            ElementTree.ParseError,
+            requests.exceptions.RequestException,
+        ) as e:
             # Older library versions (and occasionally the new one) surface
-            # blocking as a raw XML parse error on an empty response body
-            # rather than a typed exception -- treat both the same way.
+            # blocking as a raw XML parse error on an empty response body,
+            # or as a urllib3/requests retry exhaustion on repeated 429s,
+            # rather than a typed exception -- treat these the same way.
             raise RuntimeError(_BLOCKED_MESSAGE) from e
         except TranscriptsDisabled as e:
             raise RuntimeError(

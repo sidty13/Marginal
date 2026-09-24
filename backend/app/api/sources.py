@@ -2,12 +2,10 @@ import logging
 import mimetypes
 import os
 import uuid
-
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.api.deps import get_owned_notebook
 from app.core.config import settings
 from app.core.db import get_db
@@ -19,10 +17,7 @@ logger = logging.getLogger("notebook_rag")
 
 router = APIRouter(prefix="/notebooks/{notebook_id}/sources", tags=["sources"])
 
-os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-
 _EXT_TO_TYPE = {".pdf": SourceType.pdf, ".txt": SourceType.text, ".md": SourceType.text, ".vtt": SourceType.vtt}
-
 
 def _schedule_indexing(background_tasks: BackgroundTasks, source_id: uuid.UUID):
     """Uses Celery if configured/reachable, otherwise falls back to a
@@ -30,7 +25,6 @@ def _schedule_indexing(background_tasks: BackgroundTasks, source_id: uuid.UUID):
     for local dev/demoing."""
     try:
         from app.workers.celery_app import index_source_task
-
         index_source_task.delay(str(source_id))
         logger.info("Dispatched indexing for source %s to Celery", source_id)
     except Exception:
@@ -42,10 +36,8 @@ def _schedule_indexing(background_tasks: BackgroundTasks, source_id: uuid.UUID):
         )
         background_tasks.add_task(_run_inline, source_id)
 
-
 async def _run_inline(source_id: uuid.UUID):
     await run_indexing_pipeline(source_id)
-
 
 @router.get("", response_model=list[SourceOut])
 async def list_sources(
@@ -59,7 +51,6 @@ async def list_sources(
         )
     ).scalars().all()
     return [SourceOut.model_validate(r) for r in rows]
-
 
 @router.post("/upload", response_model=SourceOut, status_code=201)
 async def upload_file_source(
@@ -75,14 +66,25 @@ async def upload_file_source(
     source_type = _EXT_TO_TYPE.get(ext)
     if source_type is None:
         raise HTTPException(400, f"Unsupported file type '{ext}'. Use .pdf, .txt, .md or .vtt")
-
+    
     dest_dir = os.path.join(settings.UPLOAD_DIR, str(notebook_id))
-    os.makedirs(dest_dir, exist_ok=True)
-    dest_path = os.path.join(dest_dir, f"{uuid.uuid4()}{ext}")
-    content = await file.read()
-    with open(dest_path, "wb") as f:
-        f.write(content)
-
+    
+    try:
+        logger.info(f"UPLOAD_DIR={settings.UPLOAD_DIR}, dest_dir={dest_dir}")
+        os.makedirs(dest_dir, exist_ok=True)
+        logger.info(f"Created directory {dest_dir}")
+        
+        dest_path = os.path.join(dest_dir, f"{uuid.uuid4()}{ext}")
+        content = await file.read()
+        
+        logger.info(f"Writing {len(content)} bytes to {dest_path}")
+        with open(dest_path, "wb") as f:
+            f.write(content)
+        logger.info(f"Successfully saved file to {dest_path}")
+    except Exception as e:
+        logger.error(f"Error saving file: {e}", exc_info=True)
+        raise HTTPException(500, f"Error saving file: {str(e)}")
+    
     source = Source(
         notebook_id=notebook_id,
         type=source_type,
@@ -95,10 +97,8 @@ async def upload_file_source(
     db.add(source)
     await db.commit()
     await db.refresh(source)
-
     _schedule_indexing(background_tasks, source.id)
     return SourceOut.model_validate(source)
-
 
 @router.post("/website", response_model=SourceOut, status_code=201)
 async def add_website_source(
@@ -108,11 +108,19 @@ async def add_website_source(
     db: AsyncSession = Depends(get_db),
     notebook: Notebook = Depends(get_owned_notebook),
 ):
+    """Add a website source with pre-allocated file path."""
+    source_id = uuid.uuid4()
+    dest_dir = os.path.join(settings.UPLOAD_DIR, str(notebook_id))
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.join(dest_dir, f"{source_id}.html")
+    
     source = Source(
+        id=source_id,
         notebook_id=notebook_id,
         type=SourceType.website,
         title=payload.title or payload.url,
         origin=payload.url,
+        file_path=dest_path,
         status=SourceStatus.uploading,
         meta={},
     )
@@ -121,7 +129,6 @@ async def add_website_source(
     await db.refresh(source)
     _schedule_indexing(background_tasks, source.id)
     return SourceOut.model_validate(source)
-
 
 @router.post("/youtube", response_model=SourceOut, status_code=201)
 async def add_youtube_source(
@@ -131,11 +138,19 @@ async def add_youtube_source(
     db: AsyncSession = Depends(get_db),
     notebook: Notebook = Depends(get_owned_notebook),
 ):
+    """Add a YouTube source with pre-allocated file path."""
+    source_id = uuid.uuid4()
+    dest_dir = os.path.join(settings.UPLOAD_DIR, str(notebook_id))
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.join(dest_dir, f"{source_id}.txt")
+    
     source = Source(
+        id=source_id,
         notebook_id=notebook_id,
         type=SourceType.youtube,
         title=payload.title or payload.url,
         origin=payload.url,
+        file_path=dest_path,
         status=SourceStatus.uploading,
         meta={},
     )
@@ -145,7 +160,6 @@ async def add_youtube_source(
     _schedule_indexing(background_tasks, source.id)
     return SourceOut.model_validate(source)
 
-
 @router.get("/{source_id}/file")
 async def get_source_file(
     notebook_id: uuid.UUID,
@@ -153,7 +167,6 @@ async def get_source_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Serves the raw uploaded file (currently PDFs) for the source viewer.
-
     Deliberately not gated behind get_owned_notebook: this URL is loaded by
     a plain <iframe src=...>, which can't attach an Authorization header.
     It's protected by its unguessable notebook_id/source_id path instead,
@@ -164,7 +177,6 @@ async def get_source_file(
         raise HTTPException(404, "File not found")
     media_type, _ = mimetypes.guess_type(source.file_path)
     return FileResponse(source.file_path, media_type=media_type or "application/octet-stream", filename=source.title)
-
 
 @router.get("/{source_id}", response_model=SourceOut)
 async def get_source(
@@ -177,7 +189,6 @@ async def get_source(
     if not source or source.notebook_id != notebook_id:
         raise HTTPException(404, "Source not found")
     return SourceOut.model_validate(source)
-
 
 @router.post("/{source_id}/reindex", response_model=SourceOut)
 async def reindex_source(
@@ -195,7 +206,6 @@ async def reindex_source(
     await db.commit()
     _schedule_indexing(background_tasks, source.id)
     return SourceOut.model_validate(source)
-
 
 @router.delete("/{source_id}", status_code=204)
 async def delete_source(

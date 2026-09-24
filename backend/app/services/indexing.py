@@ -45,7 +45,7 @@ async def run_indexing_pipeline(source_id) -> None:
             try:
                 units = await extractor.extract(source)
             except FileNotFoundError as e:
-                await _set_status(db, source, SourceStatus.failed, str(e))
+                await _set_status(db, source, SourceStatus.failed, f"File not found: {str(e)}")
                 logger.warning("Source %s: file not found: %s", source_id, e)
                 return
             if not units:

@@ -1,4 +1,5 @@
 import os
+
 from pypdf import PdfReader
 
 from app.extractors.base import BaseExtractor, ExtractedUnit
