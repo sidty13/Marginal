@@ -36,7 +36,7 @@ class Settings(BaseSettings):
             v = v.strip().strip("'").strip('"')
             if not v or "localhost" in v or "127.0.0.1" in v:
                 import os
-                for key in ("DATABASE_URL", "POSTGRES_URL", "NEON_DATABASE_URL", "DB_URL"):
+                for key in ("DATABASE_URL", "DATBASE_URL", "POSTGRES_URL", "NEON_DATABASE_URL", "DB_URL"):
                     val = os.environ.get(key)
                     if val and "localhost" not in val and "127.0.0.1" not in val:
                         v = val.strip().strip("'").strip('"')
