@@ -33,27 +33,47 @@ class Settings(BaseSettings):
     @classmethod
     def assemble_async_db_url(cls, v: str) -> str:
         if isinstance(v, str):
+            import os
+            import urllib.parse
+
             v = v.strip().strip("'").strip('"')
             if not v or "localhost" in v or "127.0.0.1" in v:
-                import os
                 for key in ("DATABASE_URL", "DATBASE_URL", "POSTGRES_URL", "NEON_DATABASE_URL", "DB_URL"):
                     val = os.environ.get(key)
                     if val and "localhost" not in val and "127.0.0.1" not in val:
                         v = val.strip().strip("'").strip('"')
                         break
+
             if v.startswith("postgres://"):
                 v = v.replace("postgres://", "postgresql+asyncpg://", 1)
             elif v.startswith("postgresql://"):
                 v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
-            if "sslmode=" in v:
-                v = (
-                    v.replace("sslmode=require", "ssl=require")
-                    .replace("sslmode=prefer", "ssl=prefer")
-                    .replace("sslmode=disable", "ssl=disable")
-                )
-            if ".neon.tech" in v and "ssl=" not in v:
-                separator = "&" if "?" in v else "?"
-                v = f"{v}{separator}ssl=require"
+
+            parsed = urllib.parse.urlsplit(v)
+            query_params = urllib.parse.parse_qsl(parsed.query)
+
+            clean_params = []
+            ssl_set = False
+            for k, val in query_params:
+                if k == "sslmode":
+                    if val in ("require", "prefer", "verify-ca", "verify-full"):
+                        clean_params.append(("ssl", "require"))
+                        ssl_set = True
+                    elif val == "disable":
+                        clean_params.append(("ssl", "disable"))
+                        ssl_set = True
+                elif k == "ssl":
+                    clean_params.append((k, val))
+                    ssl_set = True
+                elif k in ("timeout", "command_timeout", "statement_cache_size", "max_queries", "max_inactive_connection_lifetime"):
+                    clean_params.append((k, val))
+                # Discard channel_binding and other unsupported libpq query parameters
+
+            if not ssl_set and (".neon.tech" in parsed.netloc or ".neon.tech" in v):
+                clean_params.append(("ssl", "require"))
+
+            new_query = urllib.parse.urlencode(clean_params)
+            v = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, parsed.fragment))
         return v
 
     @field_validator("SYNC_DATABASE_URL", mode="before")
